@@ -1,7 +1,7 @@
 # ============================================================
 # 🚗 Vehicle Info Telegram Bot
 # 👑 Author: @FNxDANGER
-# 💻 VPS Ready | Admin Controls | User Tracking
+# 💻 VPS Ready | .env Support | Admin Controls | User Tracking
 # ============================================================
 
 import os
@@ -11,23 +11,20 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 from user_agent import generate_user_agent
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
 )
 
-from dotenv import load_dotenv
+# ===============================
+# ⚙️ CONFIGURATION (From .env)
+# ===============================
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-
-# ===============================
-# ⚙️ CONFIGURATION
-# ===============================
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
-ADMIN_ID = 123456789  # 👈 Replace with your Telegram numeric ID
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # fallback to 0 if missing
 
 DATA_FILE = "users.json"
 START_TIME = time.time()
@@ -203,6 +200,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🧠 MAIN FUNCTION
 # ===============================
 async def main():
+    if not BOT_TOKEN:
+        raise ValueError("❌ BOT_TOKEN is missing. Set it in your .env file.")
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
