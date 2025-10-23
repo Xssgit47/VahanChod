@@ -17,6 +17,8 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
 )
+import asyncio # Keep this import
+import nest_asyncio # 💡 NEW: Import for loop robustness
 
 # ===============================
 # ⚙️ CONFIGURATION
@@ -31,7 +33,7 @@ DATA_FILE = "users.json"
 START_TIME = time.time()
 
 # ===============================
-# 🧾 LOGGING
+# 🔍 LOGGING
 # ===============================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -59,7 +61,7 @@ def add_user(user_id):
         save_users(users)
 
 # ===============================
-# 🧩 FORCE JOIN CHECK
+# ✅ FORCE JOIN CHECK
 # ===============================
 async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -84,7 +86,7 @@ async def ask_to_join(update: Update):
     )
 
 # ===============================
-# 🔍 VEHICLE DATA FETCHER
+# 🔎 VEHICLE DATA FETCHER
 # ===============================
 def fetch_vehicle_data(num):
     ua = generate_user_agent()
@@ -160,7 +162,7 @@ async def commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     cmds = (
-        "📜 *Command List*\n\n"
+        "📋 *Command List*\n\n"
         "`/start` - Start the bot\n"
         "`/help` - Show help\n"
         "`/ping` - Check bot response\n"
@@ -179,26 +181,28 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime = time.time() - START_TIME
     hours, rem = divmod(int(uptime), 3600)
     mins, secs = divmod(rem, 60)
-    msg = f"🏓 Pong! Bot is alive.\n⏱ Uptime: {hours}h {mins}m {secs}s\n⚡ _Powered By @FNxDANGER_"
+    msg = f"⏱️ Pong! Bot is alive.\n⏳ Uptime: {hours}h {mins}m {secs}s\n⚡ _Powered By @FNxDANGER_"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ You are not authorized to use this command.")
+        await update.message.reply_text("🚫 You are not authorized to use this command.")
         return
     users = load_users()
     uptime = int(time.time() - START_TIME)
+    hours, rem = divmod(uptime, 3600)
+    mins, secs = divmod(rem, 60)
     msg = (
         f"📊 *Bot Status*\n\n"
         f"👥 Total Users: {len(users)}\n"
-        f"🕒 Uptime: {uptime // 60} minutes\n"
+        f"⏳ Uptime: {hours}h {mins}m {secs}s\n"
         f"⚡ _Powered By @FNxDANGER_"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ You are not authorized to use this command.")
+        await update.message.reply_text("🚫 You are not authorized to use this command.")
         return
 
     if len(context.args) == 0:
@@ -209,17 +213,20 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     count = 0
 
+    await update.message.reply_text(f"🚀 Starting broadcast to {len(users)} users...", parse_mode="Markdown")
+
     for user_id in users:
         try:
-            await context.bot.send_message(chat_id=user_id, text=f"📢 *Broadcast:*\n\n{msg}\n\n⚡ _Powered By @FNxDANGER_", parse_mode="Markdown")
+            await context.bot.send_message(chat_id=user_id, text=f"📣 *Broadcast:*\n\n{msg}\n\n⚡ _Powered By @FNxDANGER_", parse_mode="Markdown")
             count += 1
         except Exception as e:
             logger.warning(f"Failed to send to {user_id}: {e}")
+            # Optionally, remove user if blocked (e.g., if error indicates bot was blocked)
 
     await update.message.reply_text(f"✅ Broadcast sent to {count}/{len(users)} users.", parse_mode="Markdown")
 
 # ===============================
-# 🔍 HANDLE VEHICLE NUMBER TEXT
+# 🔎 HANDLE VEHICLE NUMBER TEXT
 # ===============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_membership(update, context):
@@ -230,19 +237,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_user(user.id)
     num = update.message.text.strip().upper()
 
+    # Simple check for basic number format (optional, but good practice)
+    if len(num) < 5 or not any(c.isdigit() for c in num):
+        await update.message.reply_text("⚠️ Please send a valid vehicle registration number.", parse_mode="Markdown")
+        return
+
     await update.message.reply_text(f"🔍 Searching for *{num}*...\n⚡ _Powered By @FNxDANGER_", parse_mode="Markdown")
 
     data = fetch_vehicle_data(num)
-    if not any(data.values()):
+    
+    # Check if data fetching failed (Error key or all None values)
+    if "Error" in data:
+        await update.message.reply_text(f"❌ Error: {data['Error']}", parse_mode="Markdown")
+        return
+        
+    if not any(v for k, v in data.items()):
         await update.message.reply_text("❌ No data found. Please check the number.\n⚡ _Powered By @FNxDANGER_", parse_mode="Markdown")
         return
 
-    result = "\n".join([f"*{k}:* {v or 'N/A'}" for k, v in data.items()])
-    final = f"🚗 *Vehicle Details:*\n\n{result}\n\n⚡ _Powered By @FNxDANGER_"
+    # Format the result, skipping fields with no data (None)
+    result = "\n".join([f"*{k}:* {v or 'N/A'}" for k, v in data.items() if v is not None])
+    
+    final = f"🚗 *Vehicle Details for {num}:*\n\n{result}\n\n⚡ _Powered By @FNxDANGER_"
     await update.message.reply_text(final, parse_mode="Markdown")
 
 # ===============================
-# 🧠 MAIN FUNCTION
+# ⚙️ MAIN FUNCTION
 # ===============================
 async def main():
     if not BOT_TOKEN:
@@ -250,6 +270,7 @@ async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("commands", commands))
@@ -262,8 +283,13 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
+    # 💡 FIX: Apply nest_asyncio to prevent 'RuntimeError: This event loop is already running'
+    # This makes the bot resilient to being abruptly stopped and immediately restarted.
+    nest_asyncio.apply()
+    
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 Bot stopped manually.")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
