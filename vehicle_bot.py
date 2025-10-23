@@ -1,7 +1,7 @@
 # ============================================================
 # 🚗 Vehicle Info Telegram Bot
 # 👑 Author: @FNxDANGER
-# 💻 VPS Ready | .env Support | Admin Controls | User Tracking
+# 💻 VPS Ready | .env | Force Join | Admin Controls | User Tracking
 # ============================================================
 
 import os
@@ -12,25 +12,26 @@ import requests
 from bs4 import BeautifulSoup
 from user_agent import generate_user_agent
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
 )
 
 # ===============================
-# ⚙️ CONFIGURATION (From .env)
+# ⚙️ CONFIGURATION
 # ===============================
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # fallback to 0 if missing
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+FORCE_CHANNEL_ID = int(os.getenv("FORCE_CHANNEL_ID", "-1002706074038"))  # your channel ID
 
 DATA_FILE = "users.json"
 START_TIME = time.time()
 
 # ===============================
-# 🧾 LOGGING CONFIG
+# 🧾 LOGGING
 # ===============================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -39,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ===============================
-# 💾 USER DATA HANDLING
+# 💾 USER DATABASE
 # ===============================
 def load_users():
     if not os.path.exists(DATA_FILE):
@@ -56,6 +57,31 @@ def add_user(user_id):
     if user_id not in users:
         users.append(user_id)
         save_users(users)
+
+# ===============================
+# 🧩 FORCE JOIN CHECK
+# ===============================
+async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    try:
+        member = await context.bot.get_chat_member(FORCE_CHANNEL_ID, user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logger.warning(f"Membership check failed for {user_id}: {e}")
+        return False
+
+async def ask_to_join(update: Update):
+    join_btn = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🚀 Join Channel", url="https://t.me/DANGERxAHEAD")]]
+    )
+    await update.message.reply_text(
+        "⚠️ You must join our channel to use this bot!\n\n"
+        "🔗 Join here: @DANGERxAHEAD",
+        reply_markup=join_btn
+    )
 
 # ===============================
 # 🔍 VEHICLE DATA FETCHER
@@ -90,13 +116,16 @@ def fetch_vehicle_data(num):
                 p_tag = parent_div.find("p")
                 if p_tag:
                     data[label] = p_tag.get_text(strip=True)
-
     return data
 
 # ===============================
 # 🤖 COMMAND HANDLERS
 # ===============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_membership(update, context):
+        await ask_to_join(update)
+        return
+
     user = update.message.from_user
     add_user(user.id)
     msg = (
@@ -108,6 +137,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_membership(update, context):
+        await ask_to_join(update)
+        return
+
     help_text = (
         "🆘 *Help Menu*\n\n"
         "Available commands:\n"
@@ -122,6 +155,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_membership(update, context):
+        await ask_to_join(update)
+        return
+
     cmds = (
         "📜 *Command List*\n\n"
         "`/start` - Start the bot\n"
@@ -135,6 +172,10 @@ async def commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(cmds, parse_mode="Markdown")
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_membership(update, context):
+        await ask_to_join(update)
+        return
+
     uptime = time.time() - START_TIME
     hours, rem = divmod(int(uptime), 3600)
     mins, secs = divmod(rem, 60)
@@ -181,6 +222,10 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🔍 HANDLE VEHICLE NUMBER TEXT
 # ===============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_membership(update, context):
+        await ask_to_join(update)
+        return
+
     user = update.message.from_user
     add_user(user.id)
     num = update.message.text.strip().upper()
@@ -201,7 +246,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===============================
 async def main():
     if not BOT_TOKEN:
-        raise ValueError("❌ BOT_TOKEN is missing. Set it in your .env file.")
+        raise ValueError("❌ BOT_TOKEN is missing in .env")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -213,7 +258,7 @@ async def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("🤖 Bot is now running | Powered By @FNxDANGER")
+    logger.info("🤖 Bot running | Force Join Enabled | Powered By @FNxDANGER")
     await app.run_polling()
 
 if __name__ == "__main__":
